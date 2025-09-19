@@ -1,0 +1,26 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+
+# Machine learning
+scikit-learn
+xgboost
+lightgbm
+catboost
+
+# Visualization
+matplotlib
+seaborn
+plotly
+
+# Model interpretation
+shap
+
+# Jupyter
+jupyter
+notebook
+
+# Optional: deep learning (if we try neural nets)
+torch
+tensorflow
