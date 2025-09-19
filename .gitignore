@@ -7,3 +7,6 @@ outputs/
 
 # Ignore Jupyter checkpoints
 .ipynb_checkpoints/
+
+# Ignore venv
+venv/
