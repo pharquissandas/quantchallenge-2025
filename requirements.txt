@@ -22,5 +22,5 @@ jupyter
 notebook
 
 # Optional: deep learning (if we try neural nets)
-torch
-tensorflow
+# torch
+# tensorflow
