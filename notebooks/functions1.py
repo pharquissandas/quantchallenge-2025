@@ -26,7 +26,7 @@ def cleanData(csvPath):
     return dataframe, inputColumns
 
 
-def featureEngineering(dataframe, inputColumns, lags=[1,2,3], rollingAverages = [3,5,10]):
+def featureEngineering(dataframe, inputColumns, lags=[1,2,3], rollingAverages = [5,10,20]):
     for lag in lags:
         for column in inputColumns:
             dataframe[f"{column}Lag{lag}"] =  dataframe[column].shift(lag)
