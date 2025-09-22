@@ -1,7 +1,4 @@
 # Ignore datasets & submissions
-data/
-outputs/
-*.csv
 *.xlsx
 *.parquet
 
