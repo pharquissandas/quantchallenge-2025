@@ -93,7 +93,7 @@ class Strategy:
         self.homeScore: int=0
         self.awayScore: int=0
         self.timeRemaining: Optional[float] = None
-        self.gameLength: Optional[float] = None
+        self.gameLength: Optional[float] = 2400.0
 
         # Conservative parameters
 
@@ -104,12 +104,12 @@ class Strategy:
         self.minContractsperTrade: int=1
         self.maxContractsperTrade: int=500
         self.tickSize: float=0.1
-        self.cancelTimeLimitOrder: float=5.0
-        self.checkStaleOrders: float=1.0
-        self.lastCancelCheck: float=time.time()
+        # self.cancelTimeLimitOrder: float=5.0
+        # self.checkStaleOrders: float=1.0
+        # self.lastCancelCheck: float=time.time()
 
-        self.exitPosition: float=3.0
-        self.maxTradesperDay: int=200
+        # self.exitPosition: float=3.0
+        # self.maxTradesperDay: int=200
 
         self.tradeNo: int=0
         self.logPrefix = "[Conservative]"
@@ -138,21 +138,18 @@ class Strategy:
             weight=0.02
             totalTime=2400.0
         else:
-            totalTime = self.gameLength if self.gameLength is not None else max(2400.0, timeSeconds)
+            totalTime = self.gameLength
             timeFraction = max(0.0001, timeSeconds/totalTime)
             weight=2.0/((timeFraction*10.0)+1.0)
-
         effectPerPoint = weight*0.5
         base=50.0+(difference*effectPerPoint)
-
         probability = 50.0+(base-50.0)*0.6
         probability = max(0.0, min(100.0,probability))
-
         return probability
     
     def allowedContracts(self, price: float) -> float:
         allowedMoney = max(0.0,self.capitalRemaining*self.maxcapitalperSide)
-        if price<= 0.0:
+        if price<=0.0:
             return self.minContractsperTrade
         maxCapital = int(math.floor(allowedMoney/price))
         maxCapital = max(self.minContractsperTrade, min(self.maxContractsperTrade, maxCapital))
@@ -176,10 +173,10 @@ class Strategy:
         self.untappedPNL = (self.midPrice-self.averageEntryPrice)*self.position
 
     def endMarketOrder(self, proportion: float=1.0) -> None:
-        if self.position == 0:
+        if self.position==0:
             return
         exitQuantity = int(abs(self.position)*proportion)
-        if exitQuantity <= 0:
+        if exitQuantity<=0:
             return
         currentSide = Side.SELL if self.position > 0 else Side.BUY
         try:
@@ -219,19 +216,15 @@ class Strategy:
         """
         try:
             if side==Side.SELL:
-                if quantity>0:
-                    if price<self.bestAsk or self.bestAsk is None:
-                        self.bestAsk=price
-                    else:
-                        if self.bestAsk==price:
-                            self.bestAsk=None
-            elif side==Side.SELL:
-                if quantity>0:
-                    if price>self.bestBid or self.bestBid is None:
-                        self.bestBid=price
-                    else:
-                        if self.bestAsk==price:
-                            self.bestAsk=None
+                if quantity>0 and (self.bestAsk is None or price<self.bestAsk):
+                    self.bestAsk=price
+                elif self.bestAsk==price and quantity==0:
+                    self.bestAsk=0
+            elif side==Side.BUY:
+                if quantity>0 and (self.bestBid is None or price>self.bestBid):
+                    self.bestBid=price
+                elif self.bestBid==price and quantity==0:
+                    self.bestBid=None
             self.updateMidprice()
         except Exception as a:
             self.logText(f"Error in orderbook update: {a}")
@@ -251,7 +244,20 @@ class Strategy:
         capital_remaining
             Amount of capital after fulfilling order
         """
-        pass
+        try:
+            if side == Side.SELL:
+                self.position = self.position-quantity
+                if self.position<=0:
+                    self.averageEntryPrice=0.0
+            elif side == Side.BUY:
+                self.position=self.position+quantity
+                self.averageEntryPrice = ((self.averageEntryPrice*(self.position-quantity)+(price*quantity))/self.position if self.position > 0 else 0.0)
+            self.capital = capital_remaining
+            self.logText(f"Account update: position={self.position} averagePrice={self.averageEntryPrice:.2f}"
+                         f"capitalRemaining={self.capital:.2f}")
+        except Exception as a:
+            self.logText(f"Error in account update: {a}")
+
 
     def on_game_event_update(self,
                            event_type: str,
@@ -292,12 +298,32 @@ class Strategy:
         time_seconds (Optional)
             Game time remaining in seconds
         """
+        try:
+            self.logText(f"{event_type} {home_score}-{away_score}")
 
-        print(f"{event_type} {home_score} - {away_score}")
+            if event_type == "END_GAME":
+                self.reset_state()
+                # IMPORTANT: Highly recommended to call reset_state() when the
+                # game ends. See reset_state() for more details.
+                return
+            
+            self.winEstimate = self.calculateWinProb(home_score, away_score, time_seconds)
 
-        if event_type == "END_GAME":
-            # IMPORTANT: Highly recommended to call reset_state() when the
-            # game ends. See reset_state() for more details.
-            self.reset_state()
-            return
+            if self.midPrice is None:
+                return
+            
+            edge = self.winEstimate-self.midPrice
 
+            buyLimit=5.0
+            sellLimit=-5.0
+            tradeSize=10.0
+
+            if edge<sellLimit and self.position>0:
+                place_market_order(Side.SELL, Ticker.TEAM_A, min(tradeSize, self.position))
+                self.logText(f"SELL {tradeSize} at {self.midPrice} (estimated={self.winEstimate:.1f})")
+            elif edge>buyLimit and self.capital>=tradeSize*self.midPrice:
+                place_market_order(Side.BUY, Ticker.TEAM_A, tradeSize)
+                self.logText(f"BUY {tradeSize} at {self.midPrice} (estimated={self.winEstimate:.1f})")
+
+        except Exception as a:
+            self.logText(f"Error in on game event: {a}")
