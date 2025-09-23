@@ -132,19 +132,64 @@ class Strategy:
         else:
             self.midPrice=None 
 
-    def calculateWinProb(self, homeScore: int, awayScore: int, time: Optional[float]) -> float:
-        
-        # finds difference and remaining time
+    def calculateWinProb(self, homeScore: int, awayScore: int, timeSeconds: Optional[float]) -> float:
+        difference = homeScore - awayScore
+        if timeSeconds is None or timeSeconds <=0:
+            weight=0.02
+            totalTime=2400.0
+        else:
+            totalTime = self.gameLength if self.gameLength is not None else max(2400.0, timeSeconds)
+            timeFraction = max(0.0001, timeSeconds/totalTime)
+            weight=2.0/((timeFraction*10.0)+1.0)
+
+        effectPerPoint = weight*0.5
+        base=50.0+(difference*effectPerPoint)
+
+        probability = 50.0+(base-50.0)*0.6
+        probability = max(0.0, min(100.0,probability))
 
         return probability
     
     def allowedContracts(self, price: float) -> float:
+        allowedMoney = max(0.0,self.capitalRemaining*self.maxcapitalperSide)
+        if price<= 0.0:
+            return self.minContractsperTrade
+        maxCapital = int(math.floor(allowedMoney/price))
+        maxCapital = max(self.minContractsperTrade, min(self.maxContractsperTrade, maxCapital))
+        return maxCapital
 
-        return ______
+    def orderSize(self, edge: float, price: float) -> int:
+        allowedMoney = max(0.0, self.capitalRemaining*self.maxcapitalperSide)
+        normalEdge = min(abs(edge)/10.0,1.0)
+        targetMoney = max(self.minTradeIn, allowedMoney*0.5*normalEdge)
+        if price<=0:
+            return self.minContractsperTrade
+        quantity = int(math.floor(targetMoney/price))
+        quantity = max(self.minContractsperTrade, min(quantity, self.allowedContracts(price)))
+        quantity = min(quantity, self.maxContractsperTrade)
+        return quantity
+        
+    def updatePNL(self) -> None:
+        if self.position == 0 or self.midPrice is None or self.averageEntryPrice is None:
+            self.untappedPNL=0.0
+            return
+        self.untappedPNL = (self.midPrice-self.averageEntryPrice)*self.position
 
-    def on_trade_update(
-        self, ticker: Ticker, side: Side, quantity: float, price: float
-    ) -> None:
+    def endMarketOrder(self, proportion: float=1.0) -> None:
+        if self.position == 0:
+            return
+        exitQuantity = int(abs(self.position)*proportion)
+        if exitQuantity <= 0:
+            return
+        currentSide = Side.SELL if self.position > 0 else Side.BUY
+        try:
+            self.logText(f"Emergency exit market {currentSide.name} quantity={exitQuantity}")
+            place_market_order(currentSide, Ticker.TEAM_A, float(exitQuantity))
+            self.tradeNo = self.tradeNo+1
+        except Exception as a:
+            self.logText(f"Market exit failed: {a}")
+    
+    def on_trade_update(self, ticker: Ticker, side: Side, quantity: float, price: float) -> None:
         """Called whenever two orders match. Could be one of your orders, or two other people's orders.
         Parameters
         ----------
@@ -157,11 +202,9 @@ class Strategy:
         price
             Price that trade was executed at
         """
-        print(f"Python Trade update: {ticker} {side} {quantity} shares @ {price}")
+        self.logText(f"Trade update incoming: {ticker} {side} {quantity} at {price}")
 
-    def on_orderbook_update(
-        self, ticker: Ticker, side: Side, quantity: float, price: float
-    ) -> None:
+    def on_orderbook_update(self, ticker: Ticker, side: Side, quantity: float, price: float) -> None:
         """Called whenever the orderbook changes. This could be because of a trade, or because of a new order, or both.
         Parameters
         ----------
@@ -174,16 +217,26 @@ class Strategy:
         quantity
             Volume placed into orderbook
         """
-        pass
-
-    def on_account_update(
-        self,
-        ticker: Ticker,
-        side: Side,
-        price: float,
-        quantity: float,
-        capital_remaining: float,
-    ) -> None:
+        try:
+            if side==Side.SELL:
+                if quantity>0:
+                    if price<self.bestAsk or self.bestAsk is None:
+                        self.bestAsk=price
+                    else:
+                        if self.bestAsk==price:
+                            self.bestAsk=None
+            elif side==Side.SELL:
+                if quantity>0:
+                    if price>self.bestBid or self.bestBid is None:
+                        self.bestBid=price
+                    else:
+                        if self.bestAsk==price:
+                            self.bestAsk=None
+            self.updateMidprice()
+        except Exception as a:
+            self.logText(f"Error in orderbook update: {a}")
+    
+    def on_account_update(self,ticker: Ticker, side: Side, price: float, quantity: float, capital_remaining: float) -> None:
         """Called whenever one of your orders is filled.
         Parameters
         ----------
@@ -212,8 +265,7 @@ class Strategy:
                            rebound_type: Optional[str],
                            coordinate_x: Optional[float],
                            coordinate_y: Optional[float],
-                           time_seconds: Optional[float]
-        ) -> None:
+                           time_seconds: Optional[float]) -> None:
         """Called whenever a basketball game event occurs.
         Parameters
         ----------
