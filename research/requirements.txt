@@ -1,9 +1,0 @@
-# Core scientific stack
-numpy
-pandas
-scipy
-
-# Machine learning
-scikit-learn
-xgboost
-
