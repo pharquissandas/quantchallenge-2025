@@ -1,4 +1,4 @@
-# QuantChallenge-2025
+# Quant Challenge 2025
 
 ## Table of Contents
 
